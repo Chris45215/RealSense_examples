@@ -62,7 +62,8 @@ if __name__ == '__main__':
 
 		img_depth = open3d.geometry.Image(depth_image)
 		img_color = open3d.geometry.Image(color_image)
-		rgbd = open3d.geometry.RGBDImage.create_from_color_and_depth(img_color, img_depth, convert_rgb_to_intensity=False)
+		#rgbd = open3d.geometry.RGBDImage.create_from_color_and_depth(img_color, img_depth, convert_rgb_to_intensity=False)
+		rgbd = open3d.geometry.RGBDImage.create_from_color_and_depth(img_color, img_depth, convert_rgb_to_intensity=False, depth_trunc = 10.0) #this function truncates to 3 meters by default; the addition of the depth_trunc parameter fixes it.
 
 		intrinsics = profile.as_video_stream_profile().get_intrinsics()
 		pinhole_camera_intrinsic = open3d.camera.PinholeCameraIntrinsic(intrinsics.width, intrinsics.height, intrinsics.fx, intrinsics.fy, intrinsics.ppx, intrinsics.ppy)
