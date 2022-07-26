@@ -25,21 +25,39 @@ if __name__ == '__main__':
 		print("The demo requires Depth camera with Color sensor")
 		exit(0)
 
-	config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+	config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
 
 	if device_product_line == 'L500':
 		config.enable_stream(rs.stream.color, 960, 540, rs.format.rgb8, 30)  # Change for colorization
 	else:
-		config.enable_stream(rs.stream.color, 640, 480, rs.format.rgb8, 30)
+		#config.enable_stream(rs.stream.color, 1280, 720, rs.format.rgb8, 30)
+		config.enable_stream(rs.stream.color, 424, 240, rs.format.rgb8, 30) #smaller frame, for the decimation
 		
 	# Start streaming
 	pipe_profile = pipeline.start(config)
+
+	#Set depth sensor to "high accuracy" mode.
+	depth_sensor = pipe_profile.get_device().first_depth_sensor()
+
+	preset_range = depth_sensor.get_option_range(rs.option.visual_preset)
+	for i in range(int(preset_range.max)):
+		visulpreset = depth_sensor.get_option_value_description(rs.option.visual_preset,i)
+		#print('range index ', i, ': ', visulpreset)
+		if visulpreset == "High Accuracy":
+			depth_sensor.set_option(rs.option.visual_preset, i)
+			print("setting the ", visulpreset, " option on the sensor.")
+
+
+
+
 	align = rs.align(rs.stream.color)
 
 	vis = open3d.visualization.Visualizer()
 	vis.create_window('PCD', width=1280, height=720)
 	pointcloud = open3d.geometry.PointCloud()
 	geom_added = False
+
+	decimation_filter = rs.decimation_filter(3)
 
 	# Main loop
 	frame_number = 0
@@ -49,8 +67,19 @@ if __name__ == '__main__':
 		
 		# Wait for a coherent pair of frames: depth and color
 		frames = pipeline.wait_for_frames()
-		frames = align.process(frames)
 		profile = frames.get_profile()
+
+		#normal handling, no compression
+		''' 
+		frames = align.process(frames)
+		'''
+
+		#decimation approach
+		decimated_depth = decimation_filter.process(frames).as_frameset()
+		frames = align.process(decimated_depth)
+
+
+
 		depth_frame = frames.get_depth_frame()
 		color_frame = frames.get_color_frame()
 		if not depth_frame or not color_frame:
