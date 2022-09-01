@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>ccc861e4-3ed1-4c0f-be43-3c3fde1c92fe</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>realsense_o3d_colorized.py</StartupFile>
+    <StartupFile>online_processing.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -22,6 +22,9 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="online_processing.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="realsense_o3d_colorized.py" />
   </ItemGroup>
   <ItemGroup>
