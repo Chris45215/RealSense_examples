@@ -9,6 +9,8 @@ if __name__ == '__main__':
 	pipeline = rs.pipeline()
 	config = rs.config()
 	pc = rs.pointcloud()
+	filter_option = 2
+	decimation_magnitude = 2
 
 	# Get device product line for setting a supporting resolution
 	pipeline_wrapper = rs.pipeline_wrapper(pipeline)
@@ -30,8 +32,8 @@ if __name__ == '__main__':
 	if device_product_line == 'L500':
 		config.enable_stream(rs.stream.color, 960, 540, rs.format.rgb8, 30)  # Change for colorization
 	else:
-		#config.enable_stream(rs.stream.color, 1280, 720, rs.format.rgb8, 30)
-		config.enable_stream(rs.stream.color, 424, 240, rs.format.rgb8, 30) #smaller frame, for the decimation
+		config.enable_stream(rs.stream.color, 1280, 720, rs.format.rgb8, 30)
+		#config.enable_stream(rs.stream.color, 424, 240, rs.format.rgb8, 30) #smaller frame, for the decimation
 		
 	# Start streaming
 	pipe_profile = pipeline.start(config)
@@ -43,7 +45,7 @@ if __name__ == '__main__':
 	for i in range(int(preset_range.max)):
 		visulpreset = depth_sensor.get_option_value_description(rs.option.visual_preset,i)
 		#print('range index ', i, ': ', visulpreset)
-		if visulpreset == "High Accuracy":
+		if visulpreset == "High Density":
 			depth_sensor.set_option(rs.option.visual_preset, i)
 			print("setting the ", visulpreset, " option on the sensor.")
 
@@ -57,7 +59,7 @@ if __name__ == '__main__':
 	pointcloud = open3d.geometry.PointCloud()
 	geom_added = False
 
-	decimation_filter = rs.decimation_filter(3)
+	decimation_filter = rs.decimation_filter(decimation_magnitude)
 
 	# Main loop
 	frame_number = 0
@@ -69,15 +71,16 @@ if __name__ == '__main__':
 		frames = pipeline.wait_for_frames()
 		profile = frames.get_profile()
 
-		#normal handling, no compression
-		''' 
-		frames = align.process(frames)
-		'''
 
-		#decimation approach
-		decimated_depth = decimation_filter.process(frames).as_frameset()
-		frames = align.process(decimated_depth)
+		if filter_option == 1:
+			#normal handling, no compression
+			frames = align.process(frames)
 
+		if filter_option == 2:
+			#decimation approach
+			decimated_depth = decimation_filter.process(frames).as_frameset()
+			frames = align.process(decimated_depth)
+		
 
 
 		depth_frame = frames.get_depth_frame()
@@ -98,8 +101,19 @@ if __name__ == '__main__':
 		pinhole_camera_intrinsic = open3d.camera.PinholeCameraIntrinsic(intrinsics.width, intrinsics.height, intrinsics.fx, intrinsics.fy, intrinsics.ppx, intrinsics.ppy)
 
 		pcd = open3d.geometry.PointCloud.create_from_rgbd_image(rgbd, pinhole_camera_intrinsic)
+
+		'''
+		#use only every nth point; discard the rest.
+		n = 1
+		pointcloud.points = open3d.cpu.pybind.utility.Vector3dVector(np.asarray(pcd.points)[::n])
+		pointcloud.colors = open3d.cpu.pybind.utility.Vector3dVector(np.asarray(pcd.colors)[::n])
+		'''
+
+		
+		#use all the points
 		pointcloud.points = pcd.points
 		pointcloud.colors = pcd.colors  # Disabling this creates heatmap
+		
 
 		opt = vis.get_render_option()
 		opt.show_coordinate_frame = True
