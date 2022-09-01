@@ -114,7 +114,7 @@ class PipelineModel:
 			self.rgbd_metadata.intrinsics.intrinsic_matrix,
 			dtype=o3d.core.Dtype.Float32,
 			device=self.o3d_device)
-		self.depth_max = 3.0  # m
+		self.depth_max = 10.0  # m
 		self.pcd_stride = 2  # downsample point cloud, may increase frame rate
 		self.flag_normals = False
 		self.flag_save_rgbd = False
@@ -286,11 +286,14 @@ class PipelineView:
 			True)  # makes UI _much_ more responsive
 		self.pcdview.scene = rendering.Open3DScene(self.window.renderer)
 		self.pcdview.scene.set_background([1, 1, 1, 1])  # White background
+		'''
 		self.pcdview.scene.set_lighting(
 			rendering.Open3DScene.LightingProfile.SOFT_SHADOWS, [0, -6, 0])
+		'''
 		# Point cloud bounds, depends on the sensor range
 		self.pcd_bounds = o3d.geometry.AxisAlignedBoundingBox([-3, -3, 0],
-															  [3, 3, 6])
+															  [3, 3, 9])
+		
 		self.camera_view()  # Initially look from the camera
 		em = self.window.theme.font_size
 
