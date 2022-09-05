@@ -1,4 +1,4 @@
-#Copied from https://github.com/isl-org/Open3D/edit/master/examples/python/visualization/online_processing.py
+#Copied from https://github.com/isl-org/Open3D/blob/master/examples/python/visualization/online_processing.py
 
 # ----------------------------------------------------------------------------
 # -                        Open3D: www.open3d.org                            -
