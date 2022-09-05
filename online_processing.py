@@ -283,8 +283,7 @@ class PipelineView:
 		self.flag_normals = False
 		self.toggle_normals = gui.ToggleSwitch("Colors / Normals")
 		self.toggle_normals.is_on = False
-		self.toggle_normals.set_on_clicked(
-			callbacks['on_toggle_normals'])  # callback
+		self.toggle_normals.set_on_clicked(callbacks['on_toggle_normals'])  # callback
 		toggles.add_child(self.toggle_normals)
 
 		view_buttons = gui.Horiz(em)
@@ -320,19 +319,16 @@ class PipelineView:
 		save_buttons.add_child(save_rgbd)
 		save_buttons.add_stretch()  # for centering
 
-		self.video_size = (int(240 * self.window.scaling),
-						   int(320 * self.window.scaling), 3)
+		self.video_size = (int(240 * self.window.scaling), int(320 * self.window.scaling), 3)
 		self.show_color = gui.CollapsableVert("Color image")
 		self.show_color.set_is_open(False)
 		self.panel.add_child(self.show_color)
-		self.color_video = gui.ImageWidget(
-			o3d.geometry.Image(np.zeros(self.video_size, dtype=np.uint8)))
+		self.color_video = gui.ImageWidget(o3d.geometry.Image(np.zeros(self.video_size, dtype=np.uint8)))
 		self.show_color.add_child(self.color_video)
 		self.show_depth = gui.CollapsableVert("Depth image")
 		self.show_depth.set_is_open(False)
 		self.panel.add_child(self.show_depth)
-		self.depth_video = gui.ImageWidget(
-			o3d.geometry.Image(np.zeros(self.video_size, dtype=np.uint8)))
+		self.depth_video = gui.ImageWidget(o3d.geometry.Image(np.zeros(self.video_size, dtype=np.uint8)))
 		self.show_depth.add_child(self.depth_video)
 
 		self.status_message = gui.Label("")
@@ -378,27 +374,22 @@ class PipelineView:
 		# TODO(ssheorey) Switch to update_geometry() after #3452 is fixed
 		if os.name == 'nt':
 			self.pcdview.scene.remove_geometry('pcd')
-			self.pcdview.scene.add_geometry('pcd', frame_elements['pcd'],
-											self.pcd_material)
+			self.pcdview.scene.add_geometry('pcd', frame_elements['pcd'], self.pcd_material)
 		else:
 			update_flags = (rendering.Scene.UPDATE_POINTS_FLAG |
 							rendering.Scene.UPDATE_COLORS_FLAG |
 							(rendering.Scene.UPDATE_NORMALS_FLAG
 							 if self.flag_normals else 0))
-			self.pcdview.scene.scene.update_geometry('pcd',
-													 frame_elements['pcd'],
-													 update_flags)
+			self.pcdview.scene.scene.update_geometry('pcd', frame_elements['pcd'], update_flags)
 
 		# Update color and depth images
 		# TODO(ssheorey) Remove CPU transfer after we have CUDA -> OpenGL bridge
 		if self.show_color.get_is_open() and 'color' in frame_elements:
 			sampling_ratio = self.video_size[1] / frame_elements['color'].columns
-			self.color_video.update_image(
-				frame_elements['color'].resize(sampling_ratio).cpu())
+			self.color_video.update_image(frame_elements['color'].resize(sampling_ratio).cpu())
 		if self.show_depth.get_is_open() and 'depth' in frame_elements:
 			sampling_ratio = self.video_size[1] / frame_elements['depth'].columns
-			self.depth_video.update_image(
-				frame_elements['depth'].resize(sampling_ratio).cpu())
+			self.depth_video.update_image(frame_elements['depth'].resize(sampling_ratio).cpu())
 
 		if 'status_message' in frame_elements:
 			self.status_message.text = frame_elements["status_message"]
@@ -424,11 +415,8 @@ class PipelineView:
 		"""Callback on window initialize / resize"""
 		frame = self.window.content_rect
 		self.pcdview.frame = frame
-		panel_size = self.panel.calc_preferred_size(layout_context,
-													self.panel.Constraints())
-		self.panel.frame = gui.Rect(frame.get_right() - panel_size.width,
-									frame.y, panel_size.width,
-									panel_size.height)
+		panel_size = self.panel.calc_preferred_size(layout_context, self.panel.Constraints())
+		self.panel.frame = gui.Rect(frame.get_right() - panel_size.width, frame.y, panel_size.width, panel_size.height)
 
 
 class PipelineController:
@@ -446,9 +434,7 @@ class PipelineController:
 				provided, connected cameras are ignored.
 			device (str): Compute device (e.g.: 'cpu:0' or 'cuda:0').
 		"""
-		self.pipeline_model = PipelineModel(self.update_view,
-											camera_config_file, rgbd_video,
-											device)
+		self.pipeline_model = PipelineModel(self.update_view, camera_config_file, rgbd_video, device)
 
 		self.pipeline_view = PipelineView(
 			1.25 * self.pipeline_model.vfov,
@@ -461,8 +447,7 @@ class PipelineController:
 			if rgbd_video is None else None,
 			on_toggle_normals=self.on_toggle_normals)
 
-		threading.Thread(name='PipelineModel',
-						 target=self.pipeline_model.run).start()
+		threading.Thread(name='PipelineModel', target=self.pipeline_model.run).start()
 		gui.Application.instance.run()
 
 	def update_view(self, frame_elements):
@@ -472,8 +457,7 @@ class PipelineController:
 			frame_elements (dict): Display elements (point cloud and images)
 				from the new frame to be shown.
 		"""
-		gui.Application.instance.post_to_main_thread(
-			self.pipeline_view.window,
+		gui.Application.instance.post_to_main_thread( self.pipeline_view.window,
 			lambda: self.pipeline_view.update(frame_elements))
 
 	def on_toggle_capture(self, is_enabled):
@@ -516,21 +500,15 @@ class PipelineController:
 if __name__ == "__main__":
 
 	log.basicConfig(level=log.INFO)
-	parser = argparse.ArgumentParser(
-		description=__doc__,
-		formatter_class=argparse.RawDescriptionHelpFormatter)
-	parser.add_argument('--camera-config',
-						help='RGBD camera configuration JSON file')
+	parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+	parser.add_argument('--camera-config', help='RGBD camera configuration JSON file')
 	parser.add_argument('--rgbd-video', help='RGBD video file (RealSense bag)')
-	parser.add_argument('--device',
-						help='Device to run computations. e.g. cpu:0 or cuda:0 '
+	parser.add_argument('--device', help='Device to run computations. e.g. cpu:0 or cuda:0 '
 						'Default is CUDA GPU if available, else CPU.')
 
 	args = parser.parse_args()
 	if args.camera_config and args.rgbd_video:
-		log.critical(
-			"Please provide only one of --camera-config and --rgbd-video arguments"
-		)
+		log.critical("Please provide only one of --camera-config and --rgbd-video arguments")
 	else:
 		PipelineController(args.camera_config, args.rgbd_video, args.device)
 
