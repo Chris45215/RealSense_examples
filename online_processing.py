@@ -102,11 +102,12 @@ class PipelineModel:
 
 		# RGBD -> PCD
 		self.extrinsics = o3d.core.Tensor.eye(4, dtype=o3d.core.Dtype.Float32, device=self.o3d_device)
-		self.intrinsic_matrix = o3d.core.Tensor( self.rgbd_metadata.intrinsics.intrinsic_matrix, dtype=o3d.core.Dtype.Float32, device=self.o3d_device)
+		self.intrinsic_matrix = o3d.core.Tensor(self.rgbd_metadata.intrinsics.intrinsic_matrix, dtype=o3d.core.Dtype.Float32, device=self.o3d_device)
 		self.depth_max = 10.0  # m
 		self.pcd_stride = 2  # downsample point cloud, may increase frame rate
 		self.flag_normals = False
-		
+		self.flag_save_rgbd = False
+		self.flag_save_pcd = False
 
 		self.pcd_frame = None
 		self.rgbd_frame = None
@@ -125,6 +126,7 @@ class PipelineModel:
 
 	def run(self):
 		"""Run pipeline."""
+		n_pts = 0
 		frame_id = 0
 		t1 = time.perf_counter()
 		if self.video:
@@ -139,19 +141,18 @@ class PipelineModel:
 			if self.video:
 				future_rgbd_frame = self.executor.submit(self.video.next_frame)
 			else:
-				future_rgbd_frame = self.executor.submit(
-					self.camera.capture_frame,
-					wait=True,
-					align_depth_to_color=True)
+				future_rgbd_frame = self.executor.submit(self.camera.capture_frame, wait=True, align_depth_to_color=True)
 
+			if self.flag_save_pcd:
+				self.save_pcd()
+				self.flag_save_pcd = False
 			try:
 				self.rgbd_frame = self.rgbd_frame.to(self.o3d_device)
 				self.pcd_frame = o3d.t.geometry.PointCloud.create_from_rgbd_image(
 					self.rgbd_frame, self.intrinsic_matrix, self.extrinsics,
 					self.rgbd_metadata.depth_scale, self.depth_max,
 					self.pcd_stride, self.flag_normals)
-				depth_in_color = self.rgbd_frame.depth.colorize_depth(
-					self.rgbd_metadata.depth_scale, 0, self.depth_max)
+				depth_in_color = self.rgbd_frame.depth.colorize_depth(self.rgbd_metadata.depth_scale, 0, self.depth_max)
 			except RuntimeError:
 				pcd_errors += 1
 
@@ -159,6 +160,14 @@ class PipelineModel:
 				log.warning(f"No valid depth data in frame {frame_id})")
 				continue
 
+			'''
+			n_pts += self.pcd_frame.point.positions.shape[0]
+			if frame_id % 60 == 0 and frame_id > 0:
+				t0, t1 = t1, time.perf_counter()
+				log.debug(f"\nframe_id = {frame_id}, \t {(t1-t0)*1000./60:0.2f}"
+						  f"ms/frame \t {(t1-t0)*1e9/n_pts} ms/Mp\t")
+				n_pts = 0
+			'''
 			frame_elements = {
 				'color': self.rgbd_frame.color.cpu(),
 				'depth': depth_in_color.cpu(),
@@ -167,6 +176,9 @@ class PipelineModel:
 			}
 			self.update_view(frame_elements)
 
+			if self.flag_save_rgbd:
+				self.save_rgbd()
+				self.flag_save_rgbd = False
 			self.rgbd_frame = future_rgbd_frame.result()
 			with self.cv_capture:  # Wait for capture to be enabled
 				self.cv_capture.wait_for(predicate=lambda: self.flag_capture or self.flag_exit)
@@ -180,7 +192,6 @@ class PipelineModel:
 		self.executor.shutdown()
 		log.debug(f"create_from_depth_image() errors = {pcd_errors}")
 
-	
 	def toggle_record(self):
 		if self.camera is not None:
 			if self.flag_record and not self.recording:
@@ -189,7 +200,26 @@ class PipelineModel:
 			elif not self.flag_record and self.recording:
 				self.camera.pause_record()
 				self.recording = False
-	
+
+	def save_pcd(self):
+		"""Save current point cloud."""
+		now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+		filename = f"{self.rgbd_metadata.serial_number}_pcd_{now}.ply"
+		# Convert colors to uint8 for compatibility
+		self.pcd_frame.point.colors = (self.pcd_frame.point.colors * 255).to(
+			o3d.core.Dtype.UInt8)
+		self.executor.submit(o3d.t.io.write_point_cloud, filename, self.pcd_frame, write_ascii=False, compressed=True, print_progress=False)
+		self.status_message = f"Saving point cloud to {filename}."
+
+	def save_rgbd(self):
+		"""Save current RGBD image pair."""
+		now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+		filename = f"{self.rgbd_metadata.serial_number}_color_{now}.jpg"
+		self.executor.submit(o3d.t.io.write_image, filename, self.rgbd_frame.color)
+		filename = f"{self.rgbd_metadata.serial_number}_depth_{now}.png"
+		self.executor.submit(o3d.t.io.write_image, filename, self.rgbd_frame.depth)
+		self.status_message = (f"Saving RGBD images to {filename[:-3]}.{{jpg,png}}.")
+
 
 class PipelineView:
 	"""Controls display and user interface. All methods must run in the main thread."""
@@ -253,7 +283,8 @@ class PipelineView:
 		self.flag_normals = False
 		self.toggle_normals = gui.ToggleSwitch("Colors / Normals")
 		self.toggle_normals.is_on = False
-		self.toggle_normals.set_on_clicked(callbacks['on_toggle_normals'])  # callback
+		self.toggle_normals.set_on_clicked(
+			callbacks['on_toggle_normals'])  # callback
 		toggles.add_child(self.toggle_normals)
 
 		view_buttons = gui.Horiz(em)
@@ -267,18 +298,41 @@ class PipelineView:
 		view_buttons.add_child(birds_eye_view)
 		view_buttons.add_stretch()  # for centering
 
+		save_toggle = gui.Horiz(em)
+		self.panel.add_child(save_toggle)
+		save_toggle.add_child(gui.Label("Record / Save"))
+		self.toggle_record = None
+		if callbacks['on_toggle_record'] is not None:
+			save_toggle.add_fixed(1.5 * em)
+			self.toggle_record = gui.ToggleSwitch("Video")
+			self.toggle_record.is_on = False
+			self.toggle_record.set_on_clicked(callbacks['on_toggle_record'])
+			save_toggle.add_child(self.toggle_record)
+
+		save_buttons = gui.Horiz(em)
+		self.panel.add_child(save_buttons)
+		save_buttons.add_stretch()  # for centering
+		save_pcd = gui.Button("Save Point cloud")
+		save_pcd.set_on_clicked(callbacks['on_save_pcd'])
+		save_buttons.add_child(save_pcd)
+		save_rgbd = gui.Button("Save RGBD frame")
+		save_rgbd.set_on_clicked(callbacks['on_save_rgbd'])
+		save_buttons.add_child(save_rgbd)
+		save_buttons.add_stretch()  # for centering
 
 		self.video_size = (int(240 * self.window.scaling),
 						   int(320 * self.window.scaling), 3)
 		self.show_color = gui.CollapsableVert("Color image")
 		self.show_color.set_is_open(False)
 		self.panel.add_child(self.show_color)
-		self.color_video = gui.ImageWidget(o3d.geometry.Image(np.zeros(self.video_size, dtype=np.uint8)))
+		self.color_video = gui.ImageWidget(
+			o3d.geometry.Image(np.zeros(self.video_size, dtype=np.uint8)))
 		self.show_color.add_child(self.color_video)
 		self.show_depth = gui.CollapsableVert("Depth image")
 		self.show_depth.set_is_open(False)
 		self.panel.add_child(self.show_depth)
-		self.depth_video = gui.ImageWidget(o3d.geometry.Image(np.zeros(self.video_size, dtype=np.uint8)))
+		self.depth_video = gui.ImageWidget(
+			o3d.geometry.Image(np.zeros(self.video_size, dtype=np.uint8)))
 		self.show_depth.add_child(self.depth_video)
 
 		self.status_message = gui.Label("")
@@ -302,6 +356,16 @@ class PipelineView:
 		"""
 		if not self.flag_gui_init:
 			# Set dummy point cloud to allocate graphics memory
+			'''
+			dummy_pcd = o3d.t.geometry.PointCloud({
+				'positions':
+					o3d.core.Tensor.zeros((self.max_pcd_vertices, 3), o3d.core.Dtype.Float32),
+				'colors':
+					o3d.core.Tensor.zeros((self.max_pcd_vertices, 3), o3d.core.Dtype.Float32),
+				'normals':
+					o3d.core.Tensor.zeros((self.max_pcd_vertices, 3), o3d.core.Dtype.Float32)
+			})
+			'''
 			dummy_pcd = o3d.geometry.PointCloud()
 
 			if self.pcdview.scene.has_geometry('pcd'):
@@ -314,22 +378,27 @@ class PipelineView:
 		# TODO(ssheorey) Switch to update_geometry() after #3452 is fixed
 		if os.name == 'nt':
 			self.pcdview.scene.remove_geometry('pcd')
-			self.pcdview.scene.add_geometry('pcd', frame_elements['pcd'], self.pcd_material)
+			self.pcdview.scene.add_geometry('pcd', frame_elements['pcd'],
+											self.pcd_material)
 		else:
 			update_flags = (rendering.Scene.UPDATE_POINTS_FLAG |
 							rendering.Scene.UPDATE_COLORS_FLAG |
 							(rendering.Scene.UPDATE_NORMALS_FLAG
 							 if self.flag_normals else 0))
-			self.pcdview.scene.scene.update_geometry('pcd', frame_elements['pcd'], update_flags)
+			self.pcdview.scene.scene.update_geometry('pcd',
+													 frame_elements['pcd'],
+													 update_flags)
 
 		# Update color and depth images
 		# TODO(ssheorey) Remove CPU transfer after we have CUDA -> OpenGL bridge
 		if self.show_color.get_is_open() and 'color' in frame_elements:
 			sampling_ratio = self.video_size[1] / frame_elements['color'].columns
-			self.color_video.update_image(frame_elements['color'].resize(sampling_ratio).cpu())
+			self.color_video.update_image(
+				frame_elements['color'].resize(sampling_ratio).cpu())
 		if self.show_depth.get_is_open() and 'depth' in frame_elements:
 			sampling_ratio = self.video_size[1] / frame_elements['depth'].columns
-			self.depth_video.update_image(frame_elements['depth'].resize(sampling_ratio).cpu())
+			self.depth_video.update_image(
+				frame_elements['depth'].resize(sampling_ratio).cpu())
 
 		if 'status_message' in frame_elements:
 			self.status_message.text = frame_elements["status_message"]
@@ -355,9 +424,11 @@ class PipelineView:
 		"""Callback on window initialize / resize"""
 		frame = self.window.content_rect
 		self.pcdview.frame = frame
-		panel_size = self.panel.calc_preferred_size(layout_context, self.panel.Constraints())
+		panel_size = self.panel.calc_preferred_size(layout_context,
+													self.panel.Constraints())
 		self.panel.frame = gui.Rect(frame.get_right() - panel_size.width,
-									frame.y, panel_size.width, panel_size.height)
+									frame.y, panel_size.width,
+									panel_size.height)
 
 
 class PipelineController:
@@ -375,18 +446,23 @@ class PipelineController:
 				provided, connected cameras are ignored.
 			device (str): Compute device (e.g.: 'cpu:0' or 'cuda:0').
 		"""
-		self.pipeline_model = PipelineModel(self.update_view, camera_config_file, rgbd_video, device)
+		self.pipeline_model = PipelineModel(self.update_view,
+											camera_config_file, rgbd_video,
+											device)
 
 		self.pipeline_view = PipelineView(
 			1.25 * self.pipeline_model.vfov,
 			self.pipeline_model.max_points,
 			on_window_close=self.on_window_close,
 			on_toggle_capture=self.on_toggle_capture,
+			on_save_pcd=self.on_save_pcd,
+			on_save_rgbd=self.on_save_rgbd,
 			on_toggle_record=self.on_toggle_record
 			if rgbd_video is None else None,
 			on_toggle_normals=self.on_toggle_normals)
 
-		threading.Thread(name='PipelineModel', target=self.pipeline_model.run).start()
+		threading.Thread(name='PipelineModel',
+						 target=self.pipeline_model.run).start()
 		gui.Application.instance.run()
 
 	def update_view(self, frame_elements):
@@ -396,7 +472,8 @@ class PipelineController:
 			frame_elements (dict): Display elements (point cloud and images)
 				from the new frame to be shown.
 		"""
-		gui.Application.instance.post_to_main_thread(self.pipeline_view.window,
+		gui.Application.instance.post_to_main_thread(
+			self.pipeline_view.window,
 			lambda: self.pipeline_view.update(frame_elements))
 
 	def on_toggle_capture(self, is_enabled):
@@ -427,18 +504,33 @@ class PipelineController:
 			self.pipeline_model.cv_capture.notify_all()
 		return True  # OK to close window
 
+	def on_save_pcd(self):
+		"""Callback to save current point cloud."""
+		self.pipeline_model.flag_save_pcd = True
+
+	def on_save_rgbd(self):
+		"""Callback to save current RGBD image pair."""
+		self.pipeline_model.flag_save_rgbd = True
+
 
 if __name__ == "__main__":
 
 	log.basicConfig(level=log.INFO)
-	parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-	parser.add_argument('--camera-config', help='RGBD camera configuration JSON file')
+	parser = argparse.ArgumentParser(
+		description=__doc__,
+		formatter_class=argparse.RawDescriptionHelpFormatter)
+	parser.add_argument('--camera-config',
+						help='RGBD camera configuration JSON file')
 	parser.add_argument('--rgbd-video', help='RGBD video file (RealSense bag)')
-	parser.add_argument('--device', help='Device to run computations. e.g. cpu:0 or cuda:0 '
+	parser.add_argument('--device',
+						help='Device to run computations. e.g. cpu:0 or cuda:0 '
 						'Default is CUDA GPU if available, else CPU.')
 
 	args = parser.parse_args()
 	if args.camera_config and args.rgbd_video:
-		log.critical("Please provide only one of --camera-config and --rgbd-video arguments")
+		log.critical(
+			"Please provide only one of --camera-config and --rgbd-video arguments"
+		)
 	else:
 		PipelineController(args.camera_config, args.rgbd_video, args.device)
+
