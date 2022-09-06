@@ -246,7 +246,7 @@ class PipelineView:
 
 		
 		self.pcd_material = o3d.visualization.rendering.MaterialRecord()
-		self.pcd_material.shader = "defaultLit"
+		self.pcd_material.shader = "defaultUnlit"
 		# Set n_pixels displayed for each 3D point, accounting for HiDPI scaling
 		self.pcd_material.point_size = int(4 * self.window.scaling)
 		
@@ -319,6 +319,7 @@ class PipelineView:
 		save_buttons.add_child(save_rgbd)
 		save_buttons.add_stretch()  # for centering
 
+		'''
 		self.video_size = (int(240 * self.window.scaling), int(320 * self.window.scaling), 3)
 		self.show_color = gui.CollapsableVert("Color image")
 		self.show_color.set_is_open(False)
@@ -330,6 +331,7 @@ class PipelineView:
 		self.panel.add_child(self.show_depth)
 		self.depth_video = gui.ImageWidget(o3d.geometry.Image(np.zeros(self.video_size, dtype=np.uint8)))
 		self.show_depth.add_child(self.depth_video)
+		'''
 
 		self.status_message = gui.Label("")
 		self.panel.add_child(self.status_message)
@@ -367,7 +369,7 @@ class PipelineView:
 			if self.pcdview.scene.has_geometry('pcd'):
 				self.pcdview.scene.remove_geometry('pcd')
 
-			self.pcd_material.shader = "normals" if self.flag_normals else "defaultLit"
+			self.pcd_material.shader = "normals" if self.flag_normals else "defaultUnlit"
 			self.pcdview.scene.add_geometry('pcd', dummy_pcd, self.pcd_material)
 			self.flag_gui_init = True
 
@@ -375,6 +377,7 @@ class PipelineView:
 		if os.name == 'nt':
 			self.pcdview.scene.remove_geometry('pcd')
 			self.pcdview.scene.add_geometry('pcd', frame_elements['pcd'], self.pcd_material)
+			#self.pcdview.scene.update_geometry('pcd', frame_elements['pcd'])
 		else:
 			update_flags = (rendering.Scene.UPDATE_POINTS_FLAG |
 							rendering.Scene.UPDATE_COLORS_FLAG |
@@ -382,6 +385,7 @@ class PipelineView:
 							 if self.flag_normals else 0))
 			self.pcdview.scene.scene.update_geometry('pcd', frame_elements['pcd'], update_flags)
 
+		'''
 		# Update color and depth images
 		# TODO(ssheorey) Remove CPU transfer after we have CUDA -> OpenGL bridge
 		if self.show_color.get_is_open() and 'color' in frame_elements:
@@ -390,6 +394,7 @@ class PipelineView:
 		if self.show_depth.get_is_open() and 'depth' in frame_elements:
 			sampling_ratio = self.video_size[1] / frame_elements['depth'].columns
 			self.depth_video.update_image(frame_elements['depth'].resize(sampling_ratio).cpu())
+		'''
 
 		if 'status_message' in frame_elements:
 			self.status_message.text = frame_elements["status_message"]
