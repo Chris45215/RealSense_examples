@@ -370,14 +370,18 @@ class PipelineView:
 				self.pcdview.scene.remove_geometry('pcd')
 
 			self.pcd_material.shader = "normals" if self.flag_normals else "defaultUnlit"
-			self.pcdview.scene.add_geometry('pcd', dummy_pcd, self.pcd_material)
+			#trying to make a 'blank' material, for the rendering:
+			self.blank_material = o3d.visualization.rendering.MaterialRecord()
+			#self.pcdview.scene.add_geometry('pcd', dummy_pcd, self.pcd_material)
+			self.pcdview.scene.add_geometry('pcd', dummy_pcd, self.blank_material)
 			self.flag_gui_init = True
 
 		# TODO(ssheorey) Switch to update_geometry() after #3452 is fixed
 		if os.name == 'nt':
 			self.pcdview.scene.remove_geometry('pcd')
-			self.pcdview.scene.add_geometry('pcd', frame_elements['pcd'], self.pcd_material)
-			#self.pcdview.scene.update_geometry('pcd', frame_elements['pcd'])
+			#self.pcdview.scene.add_geometry('pcd', frame_elements['pcd'], self.pcd_material)
+			#self.pcdview.scene.update_geometry('pcd', frame_elements['pcd'], self.blank_material)
+			self.pcdview.scene.add_geometry('pcd', frame_elements['pcd'], self.blank_material)
 		else:
 			update_flags = (rendering.Scene.UPDATE_POINTS_FLAG |
 							rendering.Scene.UPDATE_COLORS_FLAG |
